@@ -74,6 +74,11 @@ class AwsS3Adapter extends AbstractAdapter implements CanOverwriteFiles
     protected $options = [];
 
     /**
+     * @var string
+     */
+    protected $overrideVisibilityOnCopy;
+
+    /**
      * Constructor.
      *
      * @param S3Client $client
@@ -86,6 +91,12 @@ class AwsS3Adapter extends AbstractAdapter implements CanOverwriteFiles
         $this->s3Client = $client;
         $this->bucket = $bucket;
         $this->setPathPrefix($prefix);
+
+        if (array_key_exists('override_visibility_on_copy', $options)) {
+            $this->overrideVisibilityOnCopy = $options['override_visibility_on_copy'] === AdapterInterface::VISIBILITY_PUBLIC
+                ? 'public-read' : 'private';
+            unset($options['force_visibility']);
+        }
         $this->options = $options;
     }
 
@@ -416,14 +427,19 @@ class AwsS3Adapter extends AbstractAdapter implements CanOverwriteFiles
      */
     public function copy($path, $newpath)
     {
+        if ($this->overrideVisibilityOnCopy) {
+            $acl = $this->overrideVisibilityOnCopy;
+        } else {
+            $acl = $this->getRawVisibility($path) === AdapterInterface::VISIBILITY_PUBLIC ? 'public-read' : 'private';
+        }
+
         $command = $this->s3Client->getCommand(
             'copyObject',
             [
                 'Bucket'     => $this->bucket,
                 'Key'        => $this->applyPathPrefix($newpath),
                 'CopySource' => rawurlencode($this->bucket . '/' . $this->applyPathPrefix($path)),
-                'ACL'        => $this->getRawVisibility($path) === AdapterInterface::VISIBILITY_PUBLIC
-                    ? 'public-read' : 'private',
+                'ACL' => $acl,
             ] + $this->options
         );
 
